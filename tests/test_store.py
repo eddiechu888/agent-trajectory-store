@@ -159,6 +159,12 @@ class RedactionTests(unittest.TestCase):
         self.assertEqual(value["safe"], "API key: placeholder")
         self.assertFalse(remaining_secret_kinds(value))
         self.assertGreaterEqual(len(findings), 2)
+        code, code_findings = redact("pad_token =\nnext_identifier")
+        self.assertEqual(code, "pad_token =\nnext_identifier")
+        self.assertFalse(code_findings)
+        self.assertFalse(
+            remaining_secret_kinds({"text": "openai_api_key: [REDACTED:contextual-secret:1234abcd]\nnext_identifier"})
+        )
 
 
 class AdapterTests(unittest.TestCase):

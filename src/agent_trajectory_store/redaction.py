@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -52,7 +51,7 @@ PATTERNS = (
     SecretPattern(
         "contextual-secret",
         re.compile(
-            r"(?i)(\b(?:[A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD)|api[_ -]?key|access[_ -]?token|auth[_ -]?token|refresh[_ -]?token|client[_ -]?secret|password|passwd|secret)\b\s*[:=]\s*[\"'`]?)(?!(?:placeholder|example|redacted|none|null|changeme)\b)([^\s\"'`,;)}\]]{4,})"
+            r"(?i)(\b(?:[A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD)|api[_ -]?key|access[_ -]?token|auth[_ -]?token|refresh[_ -]?token|client[_ -]?secret|password|passwd|secret)\b[ \t]*[:=][ \t]*[\"'`]?)(?!(?:placeholder|example|redacted|none|null|changeme)\b)([^\s\"'`,;)}\]]{4,})"
         ),
         2,
     ),
@@ -122,9 +121,25 @@ def redact(value: Any) -> Tuple[Any, List[dict]]:
 
 
 def remaining_secret_kinds(value: Any) -> List[str]:
-    serialized = json.dumps(value, ensure_ascii=False)
-    serialized = re.sub(r"\[REDACTED:[^\]]+\]", "", serialized)
-    return sorted({pattern.kind for pattern in PATTERNS if pattern.pattern.search(serialized)})
+    strings: List[str] = []
+
+    def collect(item: Any) -> None:
+        if isinstance(item, str):
+            strings.append(item)
+        elif isinstance(item, list):
+            for child in item:
+                collect(child)
+        elif isinstance(item, dict):
+            for key, child in item.items():
+                collect(key)
+                collect(child)
+
+    collect(value)
+    remaining = set()
+    for text in strings:
+        cleaned = re.sub(r"\[REDACTED:[^\]]+\]", "placeholder", text)
+        remaining.update(pattern.kind for pattern in PATTERNS if pattern.pattern.search(cleaned))
+    return sorted(remaining)
 
 
 def summarize(findings: Iterable[dict]) -> List[dict]:
