@@ -30,7 +30,7 @@ def commit(config: StoreConfig, paths: Iterable[Path], title: str) -> bool:
         return False
     if changed.returncode != 1:
         raise RuntimeError(changed.stderr.strip() or "failed to inspect generated changes")
-    message_path = config.repo_root / ".git" / "agent-trajectory-store-commit.txt"
+    message_path = _git_path(config.repo_root, "agent-trajectory-store-commit.txt")
     message_path.write_text(
         f"Archive {title}\n\n"
         "Preserve a sanitized coding-agent trajectory in structured ATIF and readable Markdown formats.\n"
@@ -46,7 +46,7 @@ def commit(config: StoreConfig, paths: Iterable[Path], title: str) -> bool:
 
 
 def error_log(root: Path, message: str) -> None:
-    path = root / ".git" / "agent-trajectory-store-errors.log"
+    path = _git_path(root, "agent-trajectory-store-errors.log")
     now = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
     with path.open("a") as handle:
         handle.write(f"{now} {message}\n")
@@ -83,3 +83,33 @@ def push(config: StoreConfig) -> bool:
         error_log(root, "push failed")
         return False
     return True
+
+
+def _git_path(root: Path, name: str) -> Path:
+    value = Path(git(root, "rev-parse", "--git-path", name).stdout.strip())
+    return value if value.is_absolute() else root / value
+
+
+def sync_checkout(config: StoreConfig) -> None:
+    """Only explicit dedicated checkouts sync; dirty or divergent state fails closed."""
+    root = config.repo_root
+    remote = git(root, "remote", "get-url", "origin").stdout.strip()
+    branch = git(root, "symbolic-ref", "--short", "HEAD").stdout.strip()
+    if remote != config.expected_origin or branch != config.branch:
+        raise RuntimeError("archive checkout origin/branch mismatch")
+    if git(root, "status", "--porcelain").stdout.strip():
+        raise RuntimeError("archive checkout is dirty; refusing automatic sync")
+    git(root, "fetch", "origin", config.branch, timeout=60)
+    upstream = f"origin/{config.branch}"
+    # Offline capture may have left generated-only commits. Rebase only those.
+    for revision in git(root, "rev-list", f"{upstream}..HEAD").stdout.splitlines():
+        paths = git(root, "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", revision).stdout.splitlines()
+        if any(not path.startswith("trajectories/") for path in paths):
+            raise RuntimeError("unpushed non-trajectory commit; refusing automatic sync")
+    if git(root, "merge-base", "--is-ancestor", "HEAD", upstream, check=False).returncode == 0:
+        git(root, "merge", "--ff-only", upstream)
+    elif git(root, "merge-base", "--is-ancestor", upstream, "HEAD", check=False).returncode != 0:
+        result = git(root, "rebase", upstream, check=False, timeout=120)
+        if result.returncode:
+            git(root, "rebase", "--abort", check=False)
+            raise RuntimeError("archive rebase conflict; retained local capture for review")

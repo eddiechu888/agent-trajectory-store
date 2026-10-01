@@ -33,6 +33,15 @@ def parser() -> argparse.ArgumentParser:
     drain_command = commands.add_parser("drain", help="Process pending trajectory work")
     drain_command.add_argument("--repo", default=".")
 
+    bind = commands.add_parser("bind", help="Associate an explicit session with an opted-in archive checkout")
+    bind.add_argument("--agent", choices=SUPPORTED_AGENTS, required=True)
+    bind.add_argument("--session", required=True)
+    bind.add_argument("--repo", required=True)
+
+    watch = commands.add_parser("watch-bindings", help="Archive explicitly bound Codex chats at completed turns")
+    watch.add_argument("--once", action="store_true")
+    watch.add_argument("--interval", type=float, default=30)
+
     doctor = commands.add_parser("doctor", help="Inspect repository and global-hook setup")
     doctor.add_argument("--repo", default=".")
     doctor.add_argument("--home")
@@ -61,9 +70,23 @@ def main() -> int:
         if "codex" in args.agents and not args.dry_run:
             print("Codex requires reviewing the installed hook with /hooks before it runs.", file=sys.stderr)
         return 0
+    if args.command == "bind":
+        from .bindings import bind
+        print(json.dumps(bind(args.agent, args.session, Path(args.repo)), indent=2))
+        return 0
+    if args.command == "watch-bindings":
+        from .watcher import watch, watch_once
+        if args.once:
+            report = watch_once()
+            print(json.dumps(report, indent=2))
+            return int(any(item["status"] == "error" for item in report))
+        watch(args.interval)
+        return 0
     if args.command == "hook":
         payload = json.load(sys.stdin)
         hook(args.agent, payload)
+        if payload.get("hook_event_name") in {"Stop", "Interrupt"}:
+            print("{}")
         return 0
     if args.command == "drain":
         results = drain(Path(args.repo))

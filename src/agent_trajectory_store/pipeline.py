@@ -14,8 +14,8 @@ from typing import Any, Dict, Iterable, List
 from .adapters import ADAPTERS, AdapterInput
 from .atif import atomic_write, digest, markdown, safe_id, timestamp, update_index
 from .config import StoreConfig, git, load, repo_root
-from .gitops import commit, error_log, push
-from .redaction import redact, remaining_secret_kinds, summarize
+from .gitops import commit, error_log, push, sync_checkout
+from .redaction import redact, redact_literals, remaining_secret_kinds, summarize
 
 
 @dataclass(frozen=True)
@@ -88,7 +88,9 @@ def spawn_drain(root: Path) -> None:
 
 
 def hook(source: str, payload: Dict[str, Any]) -> bool:
-    cwd = Path(payload.get("cwd") or Path.cwd())
+    from .bindings import binding_for
+    binding = binding_for(source, payload.get("session_id") or payload.get("trajectory_id"))
+    cwd = Path(binding["repository"] if binding else payload.get("cwd") or Path.cwd())
     try:
         root = repo_root(cwd)
         config = load(root)
@@ -96,8 +98,13 @@ def hook(source: str, payload: Dict[str, Any]) -> bool:
         return False
     if source not in config.agents:
         return False
+    session_id = payload.get("session_id") or payload.get("trajectory_id")
+    if config.sessions and session_id not in config.sessions:
+        return False
+    if binding and binding["expectedOrigin"] != config.expected_origin:
+        raise RuntimeError("binding origin no longer matches archive configuration")
     event = payload.get("hook_event_name") or payload.get("event_type")
-    if event in {"SessionEnd", "session_end"}:
+    if event in {"SessionEnd", "session_end", "Stop", "stop", "Interrupt", "interrupt"}:
         enqueue(source, payload, root)
     elif event not in {"SessionStart", "session_start"}:
         return False
@@ -129,6 +136,8 @@ def _settle(path: Path | None, seconds: float) -> None:
 def archive(config: StoreConfig, manifest: Dict[str, Any]) -> ArchiveResult:
     source = manifest["source"]
     session_id = manifest["sessionId"]
+    if source not in config.agents or (config.sessions and session_id not in config.sessions):
+        raise ValueError("unbound source session rejected by repository allowlist")
     transcript_value = manifest.get("transcriptPath")
     transcript = Path(transcript_value) if transcript_value else None
     _settle(transcript, config.settle_seconds)
@@ -138,10 +147,15 @@ def archive(config: StoreConfig, manifest: Dict[str, Any]) -> ArchiveResult:
         transcript_path=transcript,
         cwd=Path(manifest.get("cwd") or config.repo_root),
         model=manifest.get("model"),
-        payload=manifest.get("payload") or {},
+        payload=dict(manifest.get("payload") or {}, capture_profile=config.capture_profile,
+                     title=(config.sessions or {}).get(session_id)),
     )
     converted = ADAPTERS[source].convert(adapter_input)
-    redacted_atif, findings = redact(converted.atif)
+    from .bindings import binding_for
+    binding = binding_for(source, session_id) or {}
+    projected, literal_findings = redact_literals(converted.atif, binding.get("secretFiles", []))
+    redacted_atif, findings = redact(projected)
+    findings = literal_findings + findings
     remaining = remaining_secret_kinds(redacted_atif)
     if remaining:
         raise RuntimeError(f"secret scan failed after redaction: {', '.join(remaining)}")
@@ -177,6 +191,10 @@ def archive(config: StoreConfig, manifest: Dict[str, Any]) -> ArchiveResult:
         "transcriptBytes": len(markdown_bytes),
         "transcriptSha256": digest(markdown_bytes),
         "redactions": redaction_summary,
+        "captureProfile": config.capture_profile,
+        "capturedThroughLine": extra.get("captured_through_line"),
+        "sourcePrefixSha256": extra.get("source_prefix_sha256"),
+        "omissions": extra.get("omissions", {}),
     }
     index_path, index_bytes, index_changed = update_index(config.repo_root, entry)
     changed = (
@@ -203,6 +221,8 @@ def drain(path: Path) -> List[ArchiveResult]:
     config = load(path)
     results: List[ArchiveResult] = []
     with pipeline_lock(config.repo_root):
+        if config.sync_before_capture:
+            sync_checkout(config)
         spool = state_dir(config.repo_root) / "spool"
         manifests = sorted(spool.glob("*.json")) if spool.exists() else []
         generated: List[Path] = []
@@ -223,6 +243,6 @@ def drain(path: Path) -> List[ArchiveResult]:
             commit(config, generated, titles[0] if len(titles) == 1 else f"{len(titles)} agent trajectories")
         for manifest_path in processed:
             manifest_path.unlink(missing_ok=True)
-        if config.auto_push:
-            push(config)
+        if config.auto_push and not push(config):
+            raise RuntimeError("trajectory archived locally; publishing deferred, inspect archive error log")
     return results
