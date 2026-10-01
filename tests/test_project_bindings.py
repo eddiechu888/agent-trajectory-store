@@ -94,6 +94,27 @@ class DevelopmentTests(unittest.TestCase):
             with self.assertRaisesRegex(AdapterError,"no completed"):
                 CodexAdapter().convert(AdapterInput("codex","thread-one",p,Path(tmp),None,{"capture_profile":"development-dialogue"}))
 
+    def test_profile_rejects_adapters_without_development_projection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config=setup_repo(Path(tmp)/"repo")
+            path=config.repo_root/".devin/trajectory-store.json"
+            data=json.loads(path.read_text());data["agents"]=["codex","claude-code"]
+            path.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError,"only Codex"):
+                load(config.repo_root)
+
+    def test_other_manifest_success_cannot_acknowledge_failed_session(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ,{"ATS_BINDINGS_FILE":tmp+"/bindings.json"}):
+            config=setup_repo(Path(tmp)/"repo");p=Path(tmp)/"source.jsonl";fixture(p)
+            bind("codex","thread-one",config.repo_root)
+            with mock.patch.object(CodexAdapter,"_resolve_transcript",return_value=p):
+                self.assertEqual(watch_once()[0]["status"],"healthy")
+                with p.open("a") as f:f.write(json.dumps(record("event_msg",{"type":"task_complete","turn_id":"turn-2"}))+"\n")
+                with mock.patch("agent_trajectory_store.watcher.drain",return_value=[object()]):
+                    result=watch_once()[0]
+                self.assertEqual(result["status"],"error")
+                self.assertIn("this session capture did not finish",result["error"])
+
     def test_unbound_chat_rejected_even_with_target_cwd(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"ATS_BINDINGS_FILE": tmp+"/bindings.json", "ATS_FOREGROUND":"1"}):
             config=setup_repo(Path(tmp)/"repo")

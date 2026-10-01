@@ -74,6 +74,8 @@ def load(path: Path) -> StoreConfig:
     profile = value.get("captureProfile", "full")
     if profile not in {"full", "development-dialogue"}:
         raise ValueError("unsupported capture profile")
+    if profile == "development-dialogue" and agents != ("codex",):
+        raise ValueError("development-dialogue requires only Codex; other adapters do not implement this projection")
     sessions = value.get("sessions", {})
     if not isinstance(sessions, dict):
         raise ValueError("sessions must map session IDs to titles")
