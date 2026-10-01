@@ -56,8 +56,10 @@ def watch_once():
                            "hook_event_name": "Stop"}
                 enqueue(source, payload, Path(binding["repository"]))
                 results = drain(Path(binding["repository"]))
-                if not results:
-                    raise RuntimeError("capture did not finish; inspect archive worker error log")
+                index = json.loads((Path(binding["repository"]) / "trajectories/index.json").read_text())
+                entry = next((item for item in index["conversations"] if item["source"] == source and item["sessionId"] == session_id), {})
+                if not results or (entry.get("capturedBytes") or 0) < current["boundary"]:
+                    raise RuntimeError("this session capture did not finish; inspect archive worker error log")
                 current["archivedBoundary"] = current["boundary"]
                 current["archivedIdentity"] = current["identity"]
                 current["lastArchivedAt"] = timestamp()

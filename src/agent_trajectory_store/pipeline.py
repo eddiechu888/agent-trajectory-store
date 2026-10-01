@@ -193,6 +193,7 @@ def archive(config: StoreConfig, manifest: Dict[str, Any]) -> ArchiveResult:
         "redactions": redaction_summary,
         "captureProfile": config.capture_profile,
         "capturedThroughLine": extra.get("captured_through_line"),
+        "capturedBytes": extra.get("captured_bytes"),
         "sourcePrefixSha256": extra.get("source_prefix_sha256"),
         "omissions": extra.get("omissions", {}),
     }
