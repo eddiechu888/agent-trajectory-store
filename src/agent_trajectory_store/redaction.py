@@ -15,6 +15,7 @@ class SecretPattern:
 
 
 PATTERNS = (
+    SecretPattern("private-capability-url", re.compile(r"https://[^/\s]+\.ts\.net(?::[0-9]+)?/[A-Za-z0-9_-]{24,}(?:/[^\s)\]\"<>]*)?")),
     SecretPattern(
         "private-key",
         re.compile(
@@ -145,3 +146,29 @@ def remaining_secret_kinds(value: Any) -> List[str]:
 def summarize(findings: Iterable[dict]) -> List[dict]:
     counts = Counter(finding["kind"] for finding in findings)
     return [{"kind": kind, "count": counts[kind]} for kind in sorted(counts)]
+
+
+def redact_literals(value, secret_files):
+    """Optional local one-value files; values never enter manifests or provenance."""
+    from pathlib import Path
+    findings = []
+    secrets = []
+    for filename in secret_files:
+        secret = Path(filename).read_text().strip()
+        if len(secret) < 8 or "\n" in secret:
+            raise ValueError("literal secret file must hold one value of at least eight characters")
+        secrets.append(secret)
+    def visit(item):
+        if isinstance(item, str):
+            for secret in secrets:
+                if secret in item:
+                    replacement = marker("configured-secret", secret)
+                    findings.extend({"kind": "configured-secret", "marker": replacement} for _ in range(item.count(secret)))
+                    item = item.replace(secret, replacement)
+            return item
+        if isinstance(item, list):
+            return [visit(child) for child in item]
+        if isinstance(item, dict):
+            return {key: visit(child) for key, child in item.items()}
+        return item
+    return visit(value), findings

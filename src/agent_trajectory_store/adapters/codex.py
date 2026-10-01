@@ -12,6 +12,9 @@ from .base import AdapterError, AdapterInput, AdapterOutput
 class CodexAdapter:
     def convert(self, value: AdapterInput) -> AdapterOutput:
         transcript = self._resolve_transcript(value)
+        if value.payload.get("capture_profile") == "development-dialogue":
+            from ..development import convert
+            return convert(value, transcript)
         records = self._records(transcript)
         steps: List[Dict[str, Any]] = []
         call_steps: Dict[str, Dict[str, Any]] = {}

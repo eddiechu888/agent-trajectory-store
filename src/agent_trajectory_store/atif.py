@@ -50,7 +50,9 @@ def markdown(title: str, atif: Dict[str, Any], redactions: Iterable[dict]) -> st
         f"- ATIF steps: {len(atif.get('steps', []))}",
         f"- Redactions: {sum(counts.values())}",
         "",
-        "The ATIF file preserves structured system messages, tool calls, observations, metrics, and available reasoning after secret redaction.",
+        ("Development dialogue is preserved with original timestamps and source-line references. Injected context, reasoning and raw tool payloads are explicitly omitted; the ATIF file records references and omission counts."
+         if extra.get("capture_profile") == "development-dialogue" else
+         "The ATIF file preserves structured system messages, tool calls, observations, metrics, and available reasoning after secret redaction."),
         "",
     ]
     visible = 0
@@ -58,9 +60,11 @@ def markdown(title: str, atif: Dict[str, Any], redactions: Iterable[dict]) -> st
         source = step.get("source")
         if source not in {"user", "agent"}:
             continue
+        if extra.get("capture_profile") == "development-dialogue" and not step.get("message"):
+            continue
         visible += 1
         label = "User" if source == "user" else "Assistant"
-        lines.extend([f"## {label} {visible}", "", content_text(step.get("message")) or "_No visible text._", ""])
+        lines.extend([f"## {label} {visible}", "", f"_{step.get('timestamp', '')} · source line {(step.get('extra') or {}).get('sourceLine', 'unknown')}_", "", content_text(step.get("message")) or "_No visible text._", ""])
         calls = step.get("tool_calls") or []
         if calls:
             names = ", ".join(str(call.get("function_name", "unknown")) for call in calls)

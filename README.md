@@ -142,3 +142,73 @@ python3 -m venv .venv
 ## License
 
 MIT
+
+## Product conversations anchored in another repository
+
+Use explicit bindings when a development chat runs from an operating repository
+but its conversation belongs with the product code. This does not guess project
+membership from paths mentioned in a transcript.
+
+An opted-in product can restrict capture to named sessions in
+`.devin/trajectory-store.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "enabled": true,
+  "expectedOrigin": "https://github.com/example/private-product.git",
+  "branch": "main",
+  "autoCommit": true,
+  "autoPush": true,
+  "agents": ["codex"],
+  "captureProfile": "development-dialogue",
+  "sessions": {"thread-id": "Product design"},
+  "syncBeforeCapture": true,
+  "settleSeconds": 0
+}
+```
+
+Bind each source session to a **dedicated archive checkout**, then backfill:
+
+```sh
+ats bind --agent codex --session thread-id --repo /path/to/archive-checkout
+ats watch-bindings --once
+```
+
+Bindings are local host configuration in
+`~/.config/agent-trajectory-store/bindings.json` (override with
+`ATS_BINDINGS_FILE`). Only session IDs/titles and capture policy are committed in
+the product. Hook routing honors explicit bindings before the source cwd, and the
+repository session allowlist also rejects accidental path-based bridge dispatch.
+
+The `development-dialogue` profile streams Codex JSONL and preserves human messages
+and assistant commentary/final text, timestamps, original source line numbers,
+turn IDs, and a hash of the captured source prefix. It includes proposals,
+corrections, and rejected ideas without summarizing them. Known injected system,
+project, browser and heartbeat context is omitted. Entire scheduled heartbeat
+turns, reasoning, attachment bytes and raw tool arguments/observations are omitted;
+tool identities and hashed payload references plus omission counts remain in ATIF.
+Credential redaction still runs over retained dialogue, including private Tailscale
+capability links. A local binding may optionally specify `secretFiles` containing
+single literal values for additional redaction; values never enter the registry or
+archive. The archive is evidence of discussions, not proof every proposal shipped.
+This profile currently requires Codex source logs with matching session identity.
+
+`watch-bindings --interval 30` runs a local archiver that checks only explicitly
+bound Codex files. It tails complete records and publishes only through the last
+`task_complete` or `turn_aborted` boundary. Active work appears after completion or
+interruption; an aborted turn is labeled as such. Resume extends the same indexed
+conversation. An optional launchd/systemd service can keep this command running;
+the host must be online for capture and publication. This service reads local logs
+and does not control Codex or add model context. Existing lifecycle hooks remain a
+backstop; no hook trust bypass is necessary. `Stop`/`Interrupt` payloads are also
+accepted if a separately reviewed hook is configured for them.
+
+Only enable `syncBeforeCapture` in an archive checkout you dedicate to the store.
+It checks pinned origin, branch and clean state, fast-forwards upstream, and rebases
+only previously generated trajectory commits. Dirty state, non-trajectory local
+commits or conflicts stop synchronization. Publication still rejects every
+unpushed non-trajectory path. Network/commit failures preserve source logs and
+pending/local archive state; `watch-state.json` and the Git-local error log report
+failures. Initial configuration/policy changes should follow the project's normal
+review workflow before automatic trajectory-only updates are enabled.

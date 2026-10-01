@@ -19,6 +19,9 @@ class StoreConfig:
     auto_push: bool
     agents: Tuple[str, ...]
     settle_seconds: float
+    capture_profile: str = "full"
+    sessions: dict = None
+    sync_before_capture: bool = False
 
 
 def git(repo: Path, *args: str, check: bool = True, timeout: int = 30) -> subprocess.CompletedProcess:
@@ -68,6 +71,12 @@ def load(path: Path) -> StoreConfig:
     auto_push = bool(value.get("autoPush", False))
     if auto_push and not auto_commit:
         raise ValueError("autoPush requires autoCommit")
+    profile = value.get("captureProfile", "full")
+    if profile not in {"full", "development-dialogue"}:
+        raise ValueError("unsupported capture profile")
+    sessions = value.get("sessions", {})
+    if not isinstance(sessions, dict):
+        raise ValueError("sessions must map session IDs to titles")
     return StoreConfig(
         repo_root=root,
         expected_origin=str(value["expectedOrigin"]),
@@ -76,6 +85,9 @@ def load(path: Path) -> StoreConfig:
         auto_push=auto_push,
         agents=agents,
         settle_seconds=float(value.get("settleSeconds", 2.0)),
+        capture_profile=profile,
+        sessions=sessions,
+        sync_before_capture=bool(value.get("syncBeforeCapture", False)),
     )
 
 
