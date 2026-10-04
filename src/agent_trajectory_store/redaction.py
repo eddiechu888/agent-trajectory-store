@@ -15,6 +15,7 @@ class SecretPattern:
 
 
 PATTERNS = (
+    SecretPattern("private-capability-url", re.compile(r"https://(?:send\.bitwarden\.(?:com|eu)|vault\.bitwarden\.(?:com|eu)/#/send)/[^\s)\]\"<>]+")),
     SecretPattern("private-capability-url", re.compile(r"https://[^/\s]+\.ts\.net(?::[0-9]+)?/[A-Za-z0-9_-]{24,}(?:/[^\s)\]\"<>]*)?")),
     SecretPattern(
         "private-key",

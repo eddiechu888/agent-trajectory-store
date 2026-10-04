@@ -38,6 +38,11 @@ def parser() -> argparse.ArgumentParser:
     bind.add_argument("--session", required=True)
     bind.add_argument("--repo", required=True)
 
+    project = commands.add_parser("bind-project", help="Capture current and future interactive Codex chats started in a project root")
+    project.add_argument("--project", required=True)
+    project.add_argument("--repo", required=True, help="Dedicated archive checkout")
+    project.add_argument("--secret-file", action="append", default=[])
+
     watch = commands.add_parser("watch-bindings", help="Archive explicitly bound Codex chats at completed turns")
     watch.add_argument("--once", action="store_true")
     watch.add_argument("--interval", type=float, default=30)
@@ -73,6 +78,10 @@ def main() -> int:
     if args.command == "bind":
         from .bindings import bind
         print(json.dumps(bind(args.agent, args.session, Path(args.repo)), indent=2))
+        return 0
+    if args.command == "bind-project":
+        from .projects import bind_project
+        print(json.dumps(bind_project(Path(args.project), Path(args.repo), args.secret_file), indent=2))
         return 0
     if args.command == "watch-bindings":
         from .watcher import watch, watch_once
