@@ -22,6 +22,7 @@ class StoreConfig:
     capture_profile: str = "full"
     sessions: dict = None
     sync_before_capture: bool = False
+    capture_project_sessions: bool = False
 
 
 def git(repo: Path, *args: str, check: bool = True, timeout: int = 30) -> subprocess.CompletedProcess:
@@ -79,6 +80,11 @@ def load(path: Path) -> StoreConfig:
     sessions = value.get("sessions", {})
     if not isinstance(sessions, dict):
         raise ValueError("sessions must map session IDs to titles")
+    project_capture = value.get("captureProjectSessions", False)
+    if not isinstance(project_capture, bool):
+        raise ValueError("captureProjectSessions must be a boolean")
+    if project_capture and profile != "development-dialogue":
+        raise ValueError("project capture requires the development-dialogue profile")
     return StoreConfig(
         repo_root=root,
         expected_origin=str(value["expectedOrigin"]),
@@ -90,6 +96,7 @@ def load(path: Path) -> StoreConfig:
         capture_profile=profile,
         sessions=sessions,
         sync_before_capture=bool(value.get("syncBeforeCapture", False)),
+        capture_project_sessions=project_capture,
     )
 
 

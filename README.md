@@ -212,3 +212,45 @@ unpushed non-trajectory path. Network/commit failures preserve source logs and
 pending/local archive state; `watch-state.json` and the Git-local error log report
 failures. Initial configuration/policy changes should follow the project's normal
 review workflow before automatic trajectory-only updates are enabled.
+
+## Automatically capture a project's new chats (0.3.0)
+
+For projects whose owners approve archiving all ordinary development chats started
+in the project folder, add `"captureProjectSessions": true` to the reviewed
+repository configuration. Keep `captureProfile: "development-dialogue"` and
+`agents: ["codex"]`. Existing `sessions` entries still explicitly authorize
+cross-repository chats; project discovery does not edit that allowlist.
+
+Register the source project and a separate, dedicated archive checkout locally:
+
+```sh
+ats bind-project --project /path/to/product --repo /path/to/archive-checkout
+ats watch-bindings --once
+ats watch-bindings --interval 30
+```
+
+The existing watcher now discovers both current and future chats from Codex's
+local `session_meta` records. Only an exact initial working-directory match and
+an interactive `vscode` or `cli` source qualify. Nested runtime directories,
+noninteractive `exec` sessions, subagents, forked histories, and chats that merely
+mention the project are excluded. A separate worktree needs its own
+`bind-project` registration. The source and archive origins must both match the
+repository's pinned origin. A missing/disabled policy or changed origin stops
+project discovery with an error; it never broadens capture to unrelated sessions.
+
+Titles come from the local `session_index.jsonl` when available, falling back to
+the first human message. Discovered sessions are not written to the local explicit
+session list or the repository configuration. Only their sanitized generated
+records/index are published. The watcher reports `waiting-for-completed-turn` for
+a new active chat, then backfills after its first completed/interrupted turn.
+Run the watcher under launchd/systemd for persistent capture on each source host;
+cloning the repository alone does not install a service or expose another host's
+source logs.
+
+Local one-value secret files can be applied to every discovered project chat with
+repeatable `--secret-file /private/key-file` arguments to `bind-project`. Only
+their paths are saved locally, and re-registering preserves existing filters.
+Known credential patterns and Bitwarden Send capability links are redacted in
+dialogue, titles, indexes and commit subjects. This remains defense in depth;
+review an initial backfill before allowing it to publish. Raw source logs and
+private acceptance evidence stay outside Git.

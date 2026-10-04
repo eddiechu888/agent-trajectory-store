@@ -12,6 +12,7 @@ from .bindings import read_bindings, registry_path
 from .development import TERMINALS
 from .config import load
 from .pipeline import drain, enqueue
+from .projects import discover_projects
 
 
 def scan_terminals(path, previous):
@@ -37,8 +38,14 @@ def scan_terminals(path, previous):
 def watch_once():
     location = registry_path().with_name("watch-state.json")
     state = json.loads(location.read_text()) if location.exists() else {"sessions": {}}
-    report = []
-    for binding in read_bindings():
+    try:
+        discovered, report = discover_projects()
+    except Exception as exc:
+        discovered = []
+        report = [{"status": "error", "error": f"project discovery failed: {type(exc).__name__}: {exc}"}]
+    bindings = {(b["source"], b["sessionId"]): b for b in discovered}
+    bindings.update({(b["source"], b["sessionId"]): b for b in read_bindings()})
+    for binding in bindings.values():
         source, session_id = binding["source"], binding["sessionId"]
         if source != "codex":
             continue
@@ -48,7 +55,9 @@ def watch_once():
             config = load(Path(binding["repository"]))
             if binding["expectedOrigin"] != config.expected_origin:
                 raise RuntimeError("binding origin changed; refusing capture")
-            value = AdapterInput(source, session_id, None, Path(binding["repository"]), None, {})
+            value = AdapterInput(source, session_id,
+                                 Path(binding["transcriptPath"]) if binding.get("transcriptPath") else None,
+                                 Path(binding["repository"]), None, {})
             path = CodexAdapter()._resolve_transcript(value)
             current = scan_terminals(path, previous)
             if current["boundary"] and (current["boundary"] != previous.get("archivedBoundary") or current["identity"] != previous.get("archivedIdentity")):
@@ -68,7 +77,9 @@ def watch_once():
                 drain(Path(binding["repository"]))
             current.pop("error", None)
             state["sessions"][key] = current
-            report.append({"sessionId": session_id, "status": "healthy", "capturedBoundary": current.get("archivedBoundary", 0)})
+            report.append({"sessionId": session_id,
+                           "status": "healthy" if current.get("archivedBoundary") else "waiting-for-completed-turn",
+                           "capturedBoundary": current.get("archivedBoundary", 0)})
         except Exception as exc:
             previous["error"] = f"{type(exc).__name__}: {exc}"
             state["sessions"][key] = previous
